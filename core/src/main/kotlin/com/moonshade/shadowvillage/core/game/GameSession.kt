@@ -5,13 +5,16 @@ import com.moonshade.shadowvillage.core.combat.TargetSelector
 import com.moonshade.shadowvillage.core.data.Balance
 import com.moonshade.shadowvillage.core.data.Element
 import com.moonshade.shadowvillage.core.data.EnemyType
+import com.moonshade.shadowvillage.core.data.HeroData
 import com.moonshade.shadowvillage.core.data.TowerData
 import com.moonshade.shadowvillage.core.data.WaveDef
 import com.moonshade.shadowvillage.core.entity.EffectEvent
 import com.moonshade.shadowvillage.core.entity.Enemy
+import com.moonshade.shadowvillage.core.entity.Hero
 import com.moonshade.shadowvillage.core.entity.Projectile
 import com.moonshade.shadowvillage.core.entity.Tower
 import com.moonshade.shadowvillage.core.map.GameMap
+import com.moonshade.shadowvillage.core.map.TileType
 import com.moonshade.shadowvillage.core.wave.WaveSpawner
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.max
@@ -54,6 +57,10 @@ class GameSession(
     val towers = java.util.concurrent.CopyOnWriteArrayList<Tower>()
     val projectiles = mutableListOf<Projectile>()
 
+    @Volatile
+    var hero: Hero? = null
+        private set
+
     /** Render hints emitted during the most recent tick. */
     val effectEvents = mutableListOf<EffectEvent>()
 
@@ -89,6 +96,7 @@ class GameSession(
         spawner.update(dt) { type, hpScale -> spawnEnemy(type, hpScale) }
         updateEnemies(dt)
         updateTowers(dt)
+        updateHero(dt)
         updateProjectiles(dt)
         cleanup()
         checkWaveCleared()
@@ -140,6 +148,35 @@ class GameSession(
                 val started = spawner.startNext(Balance.hpScale(spawner.currentWave + 1))
                 if (started) effectEvents += EffectEvent.WaveStarted(spawner.currentWave)
                 started
+            }
+            is PlayerCommand.PlaceHero -> {
+                if (!canPlaceHeroAt(command.col, command.row)) return false
+                val h = hero
+                when {
+                    h == null -> {
+                        hero = Hero(command.col, command.row)
+                        true
+                    }
+                    h.canRelocate -> {
+                        h.moveTo(command.col, command.row)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            PlayerCommand.HeroAbility -> {
+                val h = hero ?: return false
+                if (!h.canUseAbility) return false
+                h.abilityCooldown = HeroData.ABILITY_COOLDOWN
+                effectEvents += EffectEvent.HeroAbilityUsed(h.pos, HeroData.ABILITY_RADIUS)
+                // Strikes everything in radius, flyers included; bosses resist
+                // the control effects via their own immunities but take damage.
+                for (enemy in enemies.filter { it.alive && it.pos.distanceTo(h.pos) <= HeroData.ABILITY_RADIUS }) {
+                    enemy.applyKnockback(HeroData.ABILITY_KNOCKBACK)
+                    enemy.applyStun(HeroData.ABILITY_STUN)
+                    damageEnemy(enemy, HeroData.ABILITY_DAMAGE)
+                }
+                true
             }
         }
     }
@@ -208,6 +245,28 @@ class GameSession(
                     knockback = knock, stun = stun,
                 )
             }
+        }
+    }
+
+    fun canPlaceHeroAt(col: Int, row: Int): Boolean =
+        map.isInside(col, row) &&
+            map.tileAt(col, row) != TileType.BLOCKED &&
+            towerAt(col, row) == null
+
+    private fun updateHero(dt: Float) {
+        val h = hero ?: return
+        h.tickCooldowns(dt)
+        if (h.attackCooldown > 0f) return
+        // Deterministic cleave: nearest ground enemies first, ids break ties.
+        val victims = enemies
+            .filter { it.alive && !it.flying && it.pos.distanceTo(h.pos) <= HeroData.MELEE_RANGE }
+            .sortedWith(compareBy({ it.pos.distanceTo(h.pos) }, { it.id }))
+            .take(HeroData.CLEAVE)
+        if (victims.isEmpty()) return
+        h.attackCooldown = 1f / HeroData.MELEE_RATE
+        for (enemy in victims) {
+            effectEvents += EffectEvent.HeroAttack(h.pos, enemy.pos)
+            damageEnemy(enemy, HeroData.MELEE_DAMAGE)
         }
     }
 

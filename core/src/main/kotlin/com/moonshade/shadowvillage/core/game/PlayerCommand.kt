@@ -15,4 +15,9 @@ sealed class PlayerCommand {
     data class SellTower(val towerId: Int) : PlayerCommand()
     data class SetTargeting(val towerId: Int, val mode: Targeting) : PlayerCommand()
     data object StartNextWave : PlayerCommand()
+
+    /** Places the hero, or relocates them if already deployed. */
+    data class PlaceHero(val col: Int, val row: Int) : PlayerCommand()
+
+    data object HeroAbility : PlayerCommand()
 }
