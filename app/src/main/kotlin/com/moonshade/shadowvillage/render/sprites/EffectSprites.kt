@@ -20,7 +20,11 @@ class ArcFx(val points: List<Vec2>) : Fx(0.20f)
 class RingFx(val pos: Vec2, val radius: Float, val color: Int) : Fx(0.35f)
 class SparkFx(val pos: Vec2, val color: Int) : Fx(0.18f)
 class PoofFx(val pos: Vec2) : Fx(0.4f)
-class TextFx(val pos: Vec2, val text: String, val color: Int) : Fx(0.9f)
+class TextFx(val pos: Vec2, val text: String, val color: Int, val scale: Float = 1f) : Fx(0.9f)
+class SparkleFx(val pos: Vec2) : Fx(0.5f)
+
+/** Screen-space announcement; drawn by PlayScreen, not the world pass. */
+class BannerFx(val text: String, val color: Int) : Fx(1.8f)
 
 object EffectSprites {
 
@@ -38,6 +42,8 @@ object EffectSprites {
             is SparkFx -> spark(canvas, fx, cam)
             is PoofFx -> poof(canvas, fx, cam)
             is TextFx -> text(canvas, fx, cam)
+            is SparkleFx -> sparkle(canvas, fx, cam)
+            is BannerFx -> Unit // screen-space; PlayScreen draws banners
         }
     }
 
@@ -102,9 +108,24 @@ object EffectSprites {
     }
 
     private fun text(canvas: Canvas, fx: TextFx, cam: Camera) {
-        textPaint.textSize = cam.cellSize * 0.42f
+        textPaint.textSize = cam.cellSize * 0.42f * fx.scale
         textPaint.color = alpha(fx.color, 1f - fx.t * fx.t)
         val cy = cam.worldY(fx.pos) - cam.cellSize * 0.7f * fx.t
         canvas.drawText(fx.text, cam.worldX(fx.pos), cy, textPaint)
+    }
+
+    /** Gold motes rising on diverging sine paths with a twinkle. */
+    private fun sparkle(canvas: Canvas, fx: SparkleFx, cam: Camera) {
+        paint.style = Paint.Style.FILL
+        val cx = cam.worldX(fx.pos)
+        val cy = cam.worldY(fx.pos)
+        val cs = cam.cellSize
+        for (i in 0 until 4) {
+            val twinkle = 0.55f + 0.45f * sin(fx.age * 25f + i * 1.9f)
+            paint.color = alpha(Palette.GOLD, (1f - fx.t) * twinkle)
+            val dx = (i - 1.5f) * cs * 0.18f * (0.4f + fx.t)
+            val sway = sin(fx.age * 9f + i * 2.4f) * cs * 0.05f
+            canvas.drawCircle(cx + dx + sway, cy - cs * 0.8f * fx.t, cs * 0.045f, paint)
+        }
     }
 }

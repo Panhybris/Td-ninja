@@ -9,10 +9,11 @@ import com.moonshade.shadowvillage.core.map.GameMap
 import com.moonshade.shadowvillage.core.map.TileType
 
 /**
- * Pre-bakes the whole map (grass, dirt path, rocks, gates) into one bitmap
- * so per-frame map drawing is a single blit.
+ * Pre-bakes the whole map (grass, dirt path, blocked scenery, gates) into
+ * one bitmap so per-frame map drawing is a single blit. The theme decides
+ * what BLOCKED cells look like (ponds at midday, stone lanterns at dusk).
  */
-class MapRenderer(private val map: GameMap) {
+class MapRenderer(private val map: GameMap, private val theme: MapTheme) {
 
     private var background: Bitmap? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -45,7 +46,10 @@ class MapRenderer(private val map: GameMap) {
                     TileType.PATH, TileType.SPAWN, TileType.GOAL -> dirt(c, rect)
                     TileType.BLOCKED -> {
                         grass(c, rect, col, row)
-                        rock(c, rect)
+                        when (theme.blockedStyle) {
+                            BlockedStyle.POND -> pond(c, rect)
+                            BlockedStyle.STONE_LANTERN -> lantern(c, rect)
+                        }
                     }
                 }
             }
@@ -81,24 +85,55 @@ class MapRenderer(private val map: GameMap) {
         c.drawCircle(r.centerX() + r.width() * 0.25f, r.centerY() - r.height() * 0.2f, r.width() * 0.06f, paint)
     }
 
-    private fun rock(c: Canvas, r: RectF) {
+    /** Still water with a rocky rim; ripples are animated live on top. */
+    private fun pond(c: Canvas, r: RectF) {
         paint.style = Paint.Style.FILL
+        paint.color = Palette.ROCK_DARK
+        c.drawRoundRect(
+            RectF(r.left + r.width() * 0.04f, r.top + r.height() * 0.06f, r.right - r.width() * 0.04f, r.bottom - r.height() * 0.02f),
+            r.width() * 0.30f, r.height() * 0.30f, paint,
+        )
+        paint.color = 0xFF2F6F94.toInt()
+        val water = RectF(r.left + r.width() * 0.12f, r.top + r.height() * 0.14f, r.right - r.width() * 0.12f, r.bottom - r.height() * 0.10f)
+        c.drawRoundRect(water, r.width() * 0.26f, r.height() * 0.26f, paint)
+        paint.color = 0xFF3FA7D6.toInt()
+        c.drawRoundRect(
+            RectF(water.left + r.width() * 0.06f, water.top + r.height() * 0.06f, water.right - r.width() * 0.06f, water.bottom - r.height() * 0.10f),
+            r.width() * 0.22f, r.height() * 0.22f, paint,
+        )
+        // a couple of rim stones
         paint.color = Palette.ROCK
-        val rock = Path().apply {
-            moveTo(r.left + r.width() * 0.2f, r.bottom - r.height() * 0.15f)
-            lineTo(r.left + r.width() * 0.15f, r.centerY())
-            lineTo(r.centerX() - r.width() * 0.1f, r.top + r.height() * 0.2f)
-            lineTo(r.right - r.width() * 0.25f, r.top + r.height() * 0.3f)
-            lineTo(r.right - r.width() * 0.15f, r.bottom - r.height() * 0.2f)
+        c.drawCircle(r.left + r.width() * 0.16f, r.top + r.height() * 0.22f, r.width() * 0.08f, paint)
+        c.drawCircle(r.right - r.width() * 0.18f, r.bottom - r.height() * 0.18f, r.width() * 0.07f, paint)
+    }
+
+    /** Stone lantern; its warm glow is animated live by the atmosphere. */
+    private fun lantern(c: Canvas, r: RectF) {
+        paint.style = Paint.Style.FILL
+        val w = r.width()
+        // pedestal, post, light box, cap
+        paint.color = Palette.ROCK_DARK
+        c.drawRect(r.centerX() - w * 0.18f, r.bottom - w * 0.22f, r.centerX() + w * 0.18f, r.bottom - w * 0.12f, paint)
+        paint.color = Palette.ROCK
+        c.drawRect(r.centerX() - w * 0.07f, r.centerY(), r.centerX() + w * 0.07f, r.bottom - w * 0.20f, paint)
+        c.drawRoundRect(
+            RectF(r.centerX() - w * 0.16f, r.top + w * 0.30f, r.centerX() + w * 0.16f, r.centerY() + w * 0.05f),
+            w * 0.04f, w * 0.04f, paint,
+        )
+        paint.color = 0xFFFFC93C.toInt()
+        c.drawRect(r.centerX() - w * 0.08f, r.top + w * 0.36f, r.centerX() + w * 0.08f, r.centerY() - w * 0.02f, paint)
+        paint.color = Palette.ROCK_DARK
+        val cap = Path().apply {
+            moveTo(r.centerX() - w * 0.22f, r.top + w * 0.30f)
+            lineTo(r.centerX(), r.top + w * 0.12f)
+            lineTo(r.centerX() + w * 0.22f, r.top + w * 0.30f)
             close()
         }
-        c.drawPath(rock, paint)
-        paint.color = Palette.ROCK_DARK
-        c.drawCircle(r.centerX(), r.centerY() + r.height() * 0.1f, r.width() * 0.1f, paint)
+        c.drawPath(cap, paint)
         paint.color = Palette.OUTLINE
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = r.width() * 0.04f
-        c.drawPath(rock, paint)
+        paint.strokeWidth = w * 0.03f
+        c.drawPath(cap, paint)
         paint.style = Paint.Style.FILL
     }
 

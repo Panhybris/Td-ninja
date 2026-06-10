@@ -16,7 +16,10 @@ interface Screen {
 }
 
 /** Swaps screens at a safe point in the frame. */
-class ScreenManager(initial: (ScreenManager) -> Screen) {
+class ScreenManager(
+    val progress: com.moonshade.shadowvillage.progress.ProgressStore,
+    initial: (ScreenManager) -> Screen,
+) {
     @Volatile
     private var pending: Screen? = null
 

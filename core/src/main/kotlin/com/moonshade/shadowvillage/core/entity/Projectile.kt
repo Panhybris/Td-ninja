@@ -15,8 +15,10 @@ class Projectile(
     var pos: Vec2,
     val target: Enemy?,
     targetPoint: Vec2?,
-    /** True when this Wind shot is the every-Nth knockback shot. */
+    /** True when this shot is the every-Nth knockback shot. */
     val knockback: Boolean = false,
+    /** True when this shot is the every-Nth stunning shot. */
+    val stun: Boolean = false,
 ) {
     var aimPoint: Vec2 = targetPoint ?: target?.pos ?: pos
         private set

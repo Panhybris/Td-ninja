@@ -48,6 +48,20 @@ object UiSprites {
         canvas.drawPath(path, fill)
     }
 
+    fun star(canvas: Canvas, cx: Float, cy: Float, r: Float, filled: Boolean) {
+        fill.color = if (filled) Palette.GOLD else 0xFF3A4158.toInt()
+        val path = Path()
+        for (i in 0 until 10) {
+            val radius = if (i % 2 == 0) r else r * 0.45f
+            val ang = Math.toRadians(-90.0 + i * 36.0)
+            val px = cx + (radius * Math.cos(ang)).toFloat()
+            val py = cy + (radius * Math.sin(ang)).toFloat()
+            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        path.close()
+        canvas.drawPath(path, fill)
+    }
+
     fun flag(canvas: Canvas, cx: Float, cy: Float, r: Float, color: Int) {
         fill.color = color
         canvas.drawRect(cx - r * 0.55f, cy - r * 0.8f, cx - r * 0.40f, cy + r * 0.9f, fill)

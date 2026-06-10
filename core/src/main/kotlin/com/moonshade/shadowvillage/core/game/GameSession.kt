@@ -5,13 +5,16 @@ import com.moonshade.shadowvillage.core.combat.TargetSelector
 import com.moonshade.shadowvillage.core.data.Balance
 import com.moonshade.shadowvillage.core.data.Element
 import com.moonshade.shadowvillage.core.data.EnemyType
+import com.moonshade.shadowvillage.core.data.HeroData
 import com.moonshade.shadowvillage.core.data.TowerData
 import com.moonshade.shadowvillage.core.data.WaveDef
 import com.moonshade.shadowvillage.core.entity.EffectEvent
 import com.moonshade.shadowvillage.core.entity.Enemy
+import com.moonshade.shadowvillage.core.entity.Hero
 import com.moonshade.shadowvillage.core.entity.Projectile
 import com.moonshade.shadowvillage.core.entity.Tower
 import com.moonshade.shadowvillage.core.map.GameMap
+import com.moonshade.shadowvillage.core.map.TileType
 import com.moonshade.shadowvillage.core.wave.WaveSpawner
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.max
@@ -54,6 +57,10 @@ class GameSession(
     val towers = java.util.concurrent.CopyOnWriteArrayList<Tower>()
     val projectiles = mutableListOf<Projectile>()
 
+    @Volatile
+    var hero: Hero? = null
+        private set
+
     /** Render hints emitted during the most recent tick. */
     val effectEvents = mutableListOf<EffectEvent>()
 
@@ -64,6 +71,11 @@ class GameSession(
     /** Thread-safe; commands run at the start of the next tick. */
     fun enqueue(command: PlayerCommand) {
         commands.add(command)
+    }
+
+    /** Test hook: grants gold directly so tests can skip economy grinding. */
+    internal fun grantGold(amount: Int) {
+        gold += amount
     }
 
     fun towerAt(col: Int, row: Int): Tower? = towers.find { it.col == col && it.row == row }
@@ -84,6 +96,7 @@ class GameSession(
         spawner.update(dt) { type, hpScale -> spawnEnemy(type, hpScale) }
         updateEnemies(dt)
         updateTowers(dt)
+        updateHero(dt)
         updateProjectiles(dt)
         cleanup()
         checkWaveCleared()
@@ -117,7 +130,7 @@ class GameSession(
                 val cost = tower.upgradeCost ?: return false
                 if (gold < cost) return false
                 gold -= cost
-                tower.upgrade()
+                tower.upgrade(command.spec)
                 true
             }
             is PlayerCommand.SellTower -> {
@@ -132,7 +145,38 @@ class GameSession(
                 true
             }
             PlayerCommand.StartNextWave -> {
-                spawner.startNext(Balance.hpScale(spawner.currentWave + 1))
+                val started = spawner.startNext(Balance.hpScale(spawner.currentWave + 1))
+                if (started) effectEvents += EffectEvent.WaveStarted(spawner.currentWave)
+                started
+            }
+            is PlayerCommand.PlaceHero -> {
+                if (!canPlaceHeroAt(command.col, command.row)) return false
+                val h = hero
+                when {
+                    h == null -> {
+                        hero = Hero(command.col, command.row)
+                        true
+                    }
+                    h.canRelocate -> {
+                        h.moveTo(command.col, command.row)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            PlayerCommand.HeroAbility -> {
+                val h = hero ?: return false
+                if (!h.canUseAbility) return false
+                h.abilityCooldown = HeroData.ABILITY_COOLDOWN
+                effectEvents += EffectEvent.HeroAbilityUsed(h.pos, HeroData.ABILITY_RADIUS)
+                // Strikes everything in radius, flyers included; bosses resist
+                // the control effects via their own immunities but take damage.
+                for (enemy in enemies.filter { it.alive && it.pos.distanceTo(h.pos) <= HeroData.ABILITY_RADIUS }) {
+                    enemy.applyKnockback(HeroData.ABILITY_KNOCKBACK)
+                    enemy.applyStun(HeroData.ABILITY_STUN)
+                    damageEnemy(enemy, HeroData.ABILITY_DAMAGE)
+                }
+                true
             }
         }
     }
@@ -172,11 +216,12 @@ class GameSession(
         }
     }
 
+    /** Attack style follows capabilities, not elements, so specs can mix them. */
     private fun fire(tower: Tower, target: Enemy) {
         effectEvents += EffectEvent.TowerFired(tower.id, target.pos)
         val stats = tower.stats
-        when (tower.element) {
-            Element.LIGHTNING -> {
+        when {
+            stats.chainCount > 0 -> {
                 val chain = AttackResolver.chainTargets(target, enemies, stats.chainCount, stats.chainRadius)
                 var dmg = stats.damage.toFloat()
                 for (enemy in chain) {
@@ -185,7 +230,7 @@ class GameSession(
                 }
                 effectEvents += EffectEvent.LightningArc(listOf(tower.pos) + chain.map { it.pos })
             }
-            Element.EARTH -> {
+            stats.splashRadius > 0f -> {
                 projectiles += Projectile(
                     nextEntityId++, tower.element, stats,
                     pos = tower.pos, target = null, targetPoint = target.pos,
@@ -193,12 +238,35 @@ class GameSession(
             }
             else -> {
                 val knock = stats.knockbackEvery > 0 && tower.shotCounter % stats.knockbackEvery == 0
+                val stun = stats.stunEvery > 0 && tower.shotCounter % stats.stunEvery == 0
                 projectiles += Projectile(
                     nextEntityId++, tower.element, stats,
                     pos = tower.pos, target = target, targetPoint = null,
-                    knockback = knock,
+                    knockback = knock, stun = stun,
                 )
             }
+        }
+    }
+
+    fun canPlaceHeroAt(col: Int, row: Int): Boolean =
+        map.isInside(col, row) &&
+            map.tileAt(col, row) != TileType.BLOCKED &&
+            towerAt(col, row) == null
+
+    private fun updateHero(dt: Float) {
+        val h = hero ?: return
+        h.tickCooldowns(dt)
+        if (h.attackCooldown > 0f) return
+        // Deterministic cleave: nearest ground enemies first, ids break ties.
+        val victims = enemies
+            .filter { it.alive && !it.flying && it.pos.distanceTo(h.pos) <= HeroData.MELEE_RANGE }
+            .sortedWith(compareBy({ it.pos.distanceTo(h.pos) }, { it.id }))
+            .take(HeroData.CLEAVE)
+        if (victims.isEmpty()) return
+        h.attackCooldown = 1f / HeroData.MELEE_RATE
+        for (enemy in victims) {
+            effectEvents += EffectEvent.HeroAttack(h.pos, enemy.pos)
+            damageEnemy(enemy, HeroData.MELEE_DAMAGE)
         }
     }
 
@@ -212,28 +280,29 @@ class GameSession(
 
     private fun resolveImpact(projectile: Projectile) {
         val stats = projectile.stats
-        when (projectile.element) {
-            Element.EARTH -> {
-                effectEvents += EffectEvent.Explosion(projectile.aimPoint, stats.splashRadius)
-                for (enemy in AttackResolver.splashVictims(projectile.aimPoint, enemies, stats.splashRadius)) {
-                    damageEnemy(enemy, stats.damage.toFloat())
-                }
+        if (stats.splashRadius > 0f) {
+            effectEvents += EffectEvent.Explosion(projectile.aimPoint, stats.splashRadius)
+            for (enemy in AttackResolver.splashVictims(projectile.aimPoint, enemies, stats.splashRadius)) {
+                if (stats.burnDps > 0f) enemy.applyBurn(stats.burnDps, stats.burnDuration)
+                if (stats.slowFactor > 0f) enemy.applySlow(stats.slowFactor, stats.slowDuration)
+                damageEnemy(enemy, stats.damage.toFloat())
             }
-            else -> {
-                val target = projectile.target ?: return
-                if (!target.alive) return
-                effectEvents += EffectEvent.Impact(target.pos, projectile.element)
-                if (stats.burnDps > 0f) target.applyBurn(stats.burnDps, stats.burnDuration)
-                if (stats.slowFactor > 0f) target.applySlow(stats.slowFactor, stats.slowDuration)
-                if (projectile.knockback) target.applyKnockback(stats.knockback)
-                damageEnemy(target, stats.damage.toFloat())
-            }
+        } else {
+            val target = projectile.target ?: return
+            if (!target.alive) return
+            effectEvents += EffectEvent.Impact(target.pos, projectile.element)
+            if (stats.burnDps > 0f) target.applyBurn(stats.burnDps, stats.burnDuration)
+            if (stats.slowFactor > 0f) target.applySlow(stats.slowFactor, stats.slowDuration)
+            if (projectile.knockback) target.applyKnockback(stats.knockback)
+            if (projectile.stun) target.applyStun(stats.stunDuration)
+            damageEnemy(target, stats.damage.toFloat())
         }
     }
 
     private fun damageEnemy(enemy: Enemy, raw: Float) {
         if (!enemy.alive) return
-        enemy.takeDamage(raw)
+        val applied = enemy.takeDamage(raw)
+        effectEvents += EffectEvent.Damage(enemy.id, enemy.pos, applied.toInt())
         if (!enemy.alive) awardKill(enemy)
     }
 
