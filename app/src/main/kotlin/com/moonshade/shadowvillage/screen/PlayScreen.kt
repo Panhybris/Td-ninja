@@ -6,6 +6,7 @@ import android.graphics.RectF
 import android.view.MotionEvent
 import com.moonshade.shadowvillage.core.data.Balance
 import com.moonshade.shadowvillage.core.data.EnemyType
+import com.moonshade.shadowvillage.core.data.SpecPath
 import com.moonshade.shadowvillage.core.data.WaveData
 import com.moonshade.shadowvillage.core.entity.EffectEvent
 import com.moonshade.shadowvillage.core.game.GameSession
@@ -281,7 +282,21 @@ class PlayScreen(
             if (panel.contains(x, y)) {
                 val tower = session.towerById(panel.towerId) ?: return
                 when (panel.hitTest(x, y)) {
-                    TowerPanel.Action.UPGRADE -> session.enqueue(PlayerCommand.UpgradeTower(tower.id))
+                    TowerPanel.Action.UPGRADE ->
+                        if (tower.tier == 2) {
+                            panel.choosingSpec = true // T3 is a choice, not a button
+                        } else {
+                            session.enqueue(PlayerCommand.UpgradeTower(tower.id))
+                        }
+                    TowerPanel.Action.SPEC_A -> {
+                        session.enqueue(PlayerCommand.UpgradeTower(tower.id, SpecPath.A))
+                        panel.choosingSpec = false
+                    }
+                    TowerPanel.Action.SPEC_B -> {
+                        session.enqueue(PlayerCommand.UpgradeTower(tower.id, SpecPath.B))
+                        panel.choosingSpec = false
+                    }
+                    TowerPanel.Action.BACK -> panel.choosingSpec = false
                     TowerPanel.Action.SELL -> {
                         session.enqueue(PlayerCommand.SellTower(tower.id))
                         towerPanel = null
