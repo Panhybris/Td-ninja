@@ -33,6 +33,7 @@ import com.moonshade.shadowvillage.render.sprites.SparkFx
 import com.moonshade.shadowvillage.render.sprites.SparkleFx
 import com.moonshade.shadowvillage.render.sprites.SpriteCache
 import com.moonshade.shadowvillage.render.sprites.TextFx
+import com.moonshade.shadowvillage.render.sprites.UiSprites
 
 class PlayScreen(
     private val screens: ScreenManager,
@@ -66,6 +67,9 @@ class PlayScreen(
 
     @Volatile
     private var placingHero = false
+
+    private var resultRecorded = false
+    private var earnedStars = 0
 
     private val fx = mutableListOf<Fx>()
     private val damageSums = HashMap<Int, Pair<Vec2, Int>>() // per-tick damage coalescing
@@ -102,6 +106,11 @@ class PlayScreen(
         fx.removeAll { it.done }
         shakeTime += dt
         shakeAmp *= (1f - 6f * dt).coerceAtLeast(0f)
+
+        if (session.status == GameStatus.VICTORY && !resultRecorded) {
+            resultRecorded = true
+            earnedStars = screens.progress.recordResult(map.id, session.lives)
+        }
 
         if (paused || session.status != GameStatus.RUNNING) return
 
@@ -244,6 +253,12 @@ class PlayScreen(
                 "Wave ${session.waveNumber}/${session.totalWaves}   Lives ${session.lives}",
                 width / 2f, height * 0.50f, text,
             )
+            if (session.status == GameStatus.VICTORY) {
+                val r = height * 0.045f
+                for (i in 0 until 3) {
+                    UiSprites.star(canvas, width / 2f + (i - 1) * r * 2.6f, height * 0.56f, r, i < earnedStars)
+                }
+            }
         }
 
         for ((rect, label) in listOf(overlayPrimary to primary, overlaySecondary to secondary)) {

@@ -5,12 +5,13 @@ import android.content.Context
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import com.moonshade.shadowvillage.progress.ProgressStore
 import com.moonshade.shadowvillage.screen.MenuScreen
 import com.moonshade.shadowvillage.screen.ScreenManager
 
 class GameSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
 
-    private val screens = ScreenManager { manager -> MenuScreen(manager) }
+    private val screens = ScreenManager(ProgressStore(context)) { manager -> MenuScreen(manager) }
     private var loop: GameLoopThread? = null
 
     init {

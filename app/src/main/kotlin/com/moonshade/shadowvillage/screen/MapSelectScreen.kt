@@ -8,6 +8,7 @@ import com.moonshade.shadowvillage.core.map.GameMap
 import com.moonshade.shadowvillage.core.map.Maps
 import com.moonshade.shadowvillage.core.map.TileType
 import com.moonshade.shadowvillage.render.Palette
+import com.moonshade.shadowvillage.render.sprites.UiSprites
 
 class MapSelectScreen(private val screens: ScreenManager) : Screen {
 
@@ -51,6 +52,8 @@ class MapSelectScreen(private val screens: ScreenManager) : Screen {
         canvas.drawText("CHOOSE A BATTLEGROUND", width / 2f, height * 0.16f, text)
 
         for ((rect, map) in cards) {
+            val unlocked = screens.progress.isUnlocked(map.id)
+
             // mini map preview
             val cell = rect.width() / map.cols
             for (row in 0 until map.rows) {
@@ -72,19 +75,53 @@ class MapSelectScreen(private val screens: ScreenManager) : Screen {
             canvas.drawRect(rect, paint)
             paint.style = Paint.Style.FILL
 
+            if (!unlocked) {
+                paint.color = 0xB0101522.toInt()
+                canvas.drawRect(rect, paint)
+                // padlock
+                paint.color = Palette.HUD_TEXT
+                val lw = rect.width() * 0.10f
+                canvas.drawRoundRect(
+                    RectF(rect.centerX() - lw, rect.centerY() - lw * 0.4f, rect.centerX() + lw, rect.centerY() + lw * 1.1f),
+                    lw * 0.2f, lw * 0.2f, paint,
+                )
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = lw * 0.35f
+                canvas.drawArc(
+                    RectF(rect.centerX() - lw * 0.6f, rect.centerY() - lw * 1.4f, rect.centerX() + lw * 0.6f, rect.centerY()),
+                    180f, 180f, false, paint,
+                )
+                paint.style = Paint.Style.FILL
+            }
+
+            // star rating row
+            val starR = height * 0.022f
+            for (i in 0 until 3) {
+                UiSprites.star(
+                    canvas, rect.centerX() + (i - 1) * starR * 2.6f, rect.bottom + height * 0.035f,
+                    starR, i < screens.progress.stars(map.id),
+                )
+            }
+
             text.textSize = height * 0.055f
             text.color = Palette.HUD_TEXT
-            canvas.drawText(map.name, rect.centerX(), rect.bottom + height * 0.08f, text)
+            canvas.drawText(map.name, rect.centerX(), rect.bottom + height * 0.11f, text)
             text.textSize = height * 0.035f
             text.color = 0xFFB9C2D6.toInt()
-            canvas.drawText(subtitles[map.id] ?: "", rect.centerX(), rect.bottom + height * 0.13f, text)
+            val sub = if (unlocked) {
+                subtitles[map.id] ?: ""
+            } else {
+                val prev = Maps.all[Maps.all.indexOfFirst { it.id == map.id } - 1]
+                "Earn a star on ${prev.name} to unlock"
+            }
+            canvas.drawText(sub, rect.centerX(), rect.bottom + height * 0.16f, text)
         }
     }
 
     override fun onTouch(event: MotionEvent) {
         if (event.action != MotionEvent.ACTION_DOWN) return
         for ((rect, map) in cards) {
-            if (rect.contains(event.x, event.y)) {
+            if (rect.contains(event.x, event.y) && screens.progress.isUnlocked(map.id)) {
                 screens.navigate(PlayScreen(screens, map))
                 return
             }
