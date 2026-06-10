@@ -66,6 +66,11 @@ class GameSession(
         commands.add(command)
     }
 
+    /** Test hook: grants gold directly so tests can skip economy grinding. */
+    internal fun grantGold(amount: Int) {
+        gold += amount
+    }
+
     fun towerAt(col: Int, row: Int): Tower? = towers.find { it.col == col && it.row == row }
 
     fun towerById(id: Int): Tower? = towers.find { it.id == id }
@@ -117,7 +122,7 @@ class GameSession(
                 val cost = tower.upgradeCost ?: return false
                 if (gold < cost) return false
                 gold -= cost
-                tower.upgrade()
+                tower.upgrade(command.spec)
                 true
             }
             is PlayerCommand.SellTower -> {
@@ -174,11 +179,12 @@ class GameSession(
         }
     }
 
+    /** Attack style follows capabilities, not elements, so specs can mix them. */
     private fun fire(tower: Tower, target: Enemy) {
         effectEvents += EffectEvent.TowerFired(tower.id, target.pos)
         val stats = tower.stats
-        when (tower.element) {
-            Element.LIGHTNING -> {
+        when {
+            stats.chainCount > 0 -> {
                 val chain = AttackResolver.chainTargets(target, enemies, stats.chainCount, stats.chainRadius)
                 var dmg = stats.damage.toFloat()
                 for (enemy in chain) {
@@ -187,7 +193,7 @@ class GameSession(
                 }
                 effectEvents += EffectEvent.LightningArc(listOf(tower.pos) + chain.map { it.pos })
             }
-            Element.EARTH -> {
+            stats.splashRadius > 0f -> {
                 projectiles += Projectile(
                     nextEntityId++, tower.element, stats,
                     pos = tower.pos, target = null, targetPoint = target.pos,
@@ -195,10 +201,11 @@ class GameSession(
             }
             else -> {
                 val knock = stats.knockbackEvery > 0 && tower.shotCounter % stats.knockbackEvery == 0
+                val stun = stats.stunEvery > 0 && tower.shotCounter % stats.stunEvery == 0
                 projectiles += Projectile(
                     nextEntityId++, tower.element, stats,
                     pos = tower.pos, target = target, targetPoint = null,
-                    knockback = knock,
+                    knockback = knock, stun = stun,
                 )
             }
         }
@@ -214,22 +221,22 @@ class GameSession(
 
     private fun resolveImpact(projectile: Projectile) {
         val stats = projectile.stats
-        when (projectile.element) {
-            Element.EARTH -> {
-                effectEvents += EffectEvent.Explosion(projectile.aimPoint, stats.splashRadius)
-                for (enemy in AttackResolver.splashVictims(projectile.aimPoint, enemies, stats.splashRadius)) {
-                    damageEnemy(enemy, stats.damage.toFloat())
-                }
+        if (stats.splashRadius > 0f) {
+            effectEvents += EffectEvent.Explosion(projectile.aimPoint, stats.splashRadius)
+            for (enemy in AttackResolver.splashVictims(projectile.aimPoint, enemies, stats.splashRadius)) {
+                if (stats.burnDps > 0f) enemy.applyBurn(stats.burnDps, stats.burnDuration)
+                if (stats.slowFactor > 0f) enemy.applySlow(stats.slowFactor, stats.slowDuration)
+                damageEnemy(enemy, stats.damage.toFloat())
             }
-            else -> {
-                val target = projectile.target ?: return
-                if (!target.alive) return
-                effectEvents += EffectEvent.Impact(target.pos, projectile.element)
-                if (stats.burnDps > 0f) target.applyBurn(stats.burnDps, stats.burnDuration)
-                if (stats.slowFactor > 0f) target.applySlow(stats.slowFactor, stats.slowDuration)
-                if (projectile.knockback) target.applyKnockback(stats.knockback)
-                damageEnemy(target, stats.damage.toFloat())
-            }
+        } else {
+            val target = projectile.target ?: return
+            if (!target.alive) return
+            effectEvents += EffectEvent.Impact(target.pos, projectile.element)
+            if (stats.burnDps > 0f) target.applyBurn(stats.burnDps, stats.burnDuration)
+            if (stats.slowFactor > 0f) target.applySlow(stats.slowFactor, stats.slowDuration)
+            if (projectile.knockback) target.applyKnockback(stats.knockback)
+            if (projectile.stun) target.applyStun(stats.stunDuration)
+            damageEnemy(target, stats.damage.toFloat())
         }
     }
 
