@@ -7,6 +7,7 @@ import android.graphics.Shader
 import android.view.MotionEvent
 import com.moonshade.shadowvillage.core.data.Element
 import com.moonshade.shadowvillage.render.Palette
+import com.moonshade.shadowvillage.render.sprites.NinjaPose
 import com.moonshade.shadowvillage.render.sprites.NinjaSprites
 import kotlin.math.sin
 
@@ -80,7 +81,7 @@ class MenuScreen(private val screens: ScreenManager) : Screen {
             canvas.save()
             val bob = sin(time * 2.5f + element.ordinal) * height * 0.012f
             canvas.translate(x, height * 0.52f + bob)
-            NinjaSprites.draw(canvas, element, tier = 3, size = size)
+            NinjaSprites.draw(canvas, element, tier = 3, spec = null, pose = NinjaPose.IDLE, size = size)
             canvas.restore()
             x += size * 1.1f
         }

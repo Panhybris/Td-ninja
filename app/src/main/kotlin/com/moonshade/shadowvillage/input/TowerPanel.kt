@@ -7,6 +7,7 @@ import com.moonshade.shadowvillage.core.entity.Tower
 import com.moonshade.shadowvillage.core.game.GameSession
 import com.moonshade.shadowvillage.render.Camera
 import com.moonshade.shadowvillage.render.Palette
+import com.moonshade.shadowvillage.render.sprites.NinjaPose
 import com.moonshade.shadowvillage.render.sprites.SpriteCache
 
 /** Bottom strip with stats and Upgrade / Sell / Targeting for a selected tower. */
@@ -65,7 +66,7 @@ class TowerPanel(val towerId: Int) {
         // portrait
         val portrait = (h * 0.8f).toInt()
         canvas.drawBitmap(
-            sprites.ninja(tower.element, tower.tier, portrait),
+            sprites.ninja(tower.element, tower.tier, tower.spec, NinjaPose.IDLE, portrait),
             h * 0.1f, panel.top + h * 0.1f, null,
         )
 

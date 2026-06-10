@@ -111,10 +111,12 @@ class PlayScreen(
                 is EffectEvent.WaveCleared -> fx += TextFx(
                     map.waypoints[map.waypoints.size / 2], "WAVE CLEAR +${event.bonus}", Palette.GOLD,
                 )
-                is EffectEvent.TowerFired -> Unit
+                is EffectEvent.TowerFired -> session.towerById(event.towerId)?.let {
+                    gameRenderer.onTowerFired(it.id, it.pos, event.targetPos)
+                }
                 is EffectEvent.WaveStarted -> Unit // banner lands in the VFX step
-                is EffectEvent.Damage -> Unit // damage numbers land in the VFX step
-                is EffectEvent.HeroAttack -> Unit // hero FX land with the hero UI
+                is EffectEvent.Damage -> gameRenderer.onEnemyDamaged(event.enemyId)
+                is EffectEvent.HeroAttack -> gameRenderer.onHeroAttack()
                 is EffectEvent.HeroAbilityUsed -> Unit
             }
         }
