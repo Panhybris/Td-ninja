@@ -63,6 +63,9 @@ class PlayScreen(
     @Volatile
     private var towerPanel: TowerPanel? = null
 
+    @Volatile
+    private var placingHero = false
+
     private val fx = mutableListOf<Fx>()
     private val damageSums = HashMap<Int, Pair<Vec2, Int>>() // per-tick damage coalescing
     private var shakeAmp = 0f
@@ -196,7 +199,7 @@ class PlayScreen(
             if (session.towerById(it.towerId) == null) towerPanel = null else it.draw(canvas, session, camera, sprites)
         }
         buildMenu?.draw(canvas, camera, session.gold)
-        hud.draw(canvas, session, speed, paused)
+        hud.draw(canvas, session, speed, paused, placingHero, shakeTime)
 
         when {
             session.status == GameStatus.VICTORY -> overlay(canvas, "VICTORY!", Palette.GOLD, "REPLAY", "MAPS")
@@ -315,11 +318,27 @@ class PlayScreen(
                 session.enqueue(PlayerCommand.StartNextWave)
                 return
             }
+            hud.heroBtn.contains(x, y) -> {
+                val hero = session.hero
+                placingHero = !placingHero && (hero == null || hero.canRelocate)
+                return
+            }
+            hud.abilityBtn.contains(x, y) && session.hero != null -> {
+                session.enqueue(PlayerCommand.HeroAbility)
+                return
+            }
         }
 
         // 5) world taps
         val col = camera.screenToCol(x)
         val row = camera.screenToRow(y)
+
+        if (placingHero) {
+            placingHero = false
+            session.enqueue(PlayerCommand.PlaceHero(col, row))
+            return
+        }
+
         val tappedTower = session.towerAt(col, row)
         when {
             tappedTower != null -> {
