@@ -13,10 +13,12 @@ import com.moonshade.shadowvillage.core.game.PlayerCommand
 import com.moonshade.shadowvillage.core.map.GameMap
 import com.moonshade.shadowvillage.input.BuildMenu
 import com.moonshade.shadowvillage.input.TowerPanel
+import com.moonshade.shadowvillage.render.AtmosphereRenderer
 import com.moonshade.shadowvillage.render.Camera
 import com.moonshade.shadowvillage.render.GameRenderer
 import com.moonshade.shadowvillage.render.HudRenderer
 import com.moonshade.shadowvillage.render.MapRenderer
+import com.moonshade.shadowvillage.render.MapTheme
 import com.moonshade.shadowvillage.render.Palette
 import com.moonshade.shadowvillage.render.sprites.ArcFx
 import com.moonshade.shadowvillage.render.sprites.EffectSprites
@@ -35,7 +37,9 @@ class PlayScreen(
     private val session = GameSession(map, WaveData.forMap(map.id))
     private val camera = Camera(map)
     private val sprites = SpriteCache()
-    private val mapRenderer = MapRenderer(map)
+    private val theme = MapTheme.forMap(map.id)
+    private val mapRenderer = MapRenderer(map, theme)
+    private val atmosphere = AtmosphereRenderer(map, theme)
     private val gameRenderer = GameRenderer(sprites)
     private val hud = HudRenderer()
 
@@ -82,6 +86,7 @@ class PlayScreen(
 
     override fun update(dt: Float) {
         gameRenderer.tick(dt)
+        atmosphere.update(dt) // ambient life keeps moving even while paused
         for (f in fx) f.age += dt
         fx.removeAll { it.done }
 
@@ -126,7 +131,9 @@ class PlayScreen(
     override fun draw(canvas: Canvas) {
         if (width == 0) return
         mapRenderer.draw(canvas, camera, width, height)
+        atmosphere.drawBehindEntities(canvas, camera)
         gameRenderer.draw(canvas, session, camera)
+        atmosphere.drawOverEntities(canvas, camera, width, height)
         for (f in fx) EffectSprites.draw(canvas, f, camera)
 
         towerPanel?.let {
