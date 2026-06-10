@@ -29,12 +29,14 @@ class Enemy(
 
     private var burn: StatusEffect.Burn? = null
     private var slow: StatusEffect.Slow? = null
+    private var stun: StatusEffect.Stun? = null
 
     val burning get() = burn != null
     val slowed get() = slow != null
+    val stunned get() = stun != null
 
-    /** Current speed multiplier after slows. */
-    val speedMul: Float get() = 1f - (slow?.factor ?: 0f)
+    /** Current speed multiplier after slows and stuns. */
+    val speedMul: Float get() = if (stunned) 0f else 1f - (slow?.factor ?: 0f)
 
     fun applyBurn(dps: Float, duration: Float) {
         val current = burn
@@ -52,6 +54,17 @@ class Enemy(
         if (current == null || capped > current.factor) {
             slow = StatusEffect.Slow(capped, duration)
         } else if (capped == current.factor) {
+            current.remaining = max(current.remaining, duration)
+        }
+    }
+
+    fun applyStun(duration: Float) {
+        // Control-immune enemies (bosses) shrug stuns off like knockbacks.
+        if (stats.knockbackImmune) return
+        val current = stun
+        if (current == null) {
+            stun = StatusEffect.Stun(duration)
+        } else {
             current.remaining = max(current.remaining, duration)
         }
     }
@@ -96,6 +109,11 @@ class Enemy(
         slow?.let {
             it.remaining -= dt
             if (it.remaining <= 0f) slow = null
+        }
+
+        stun?.let {
+            it.remaining -= dt
+            if (it.remaining <= 0f) stun = null
         }
 
         if (stats.regenPerSec > 0f) {

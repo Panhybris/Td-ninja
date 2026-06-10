@@ -50,6 +50,40 @@ class EnemyMovementTest {
     }
 
     @Test
+    fun `stun halts movement then releases`() {
+        val e = enemy()
+        e.teleportTo(2f)
+        e.applyStun(0.5f)
+        assertEquals(0f, e.speedMul)
+        repeat(10) { e.update(Balance.TICK) } // 0.33s, still stunned
+        assertEquals(2f, e.pathDistance)
+        repeat(20) { e.update(Balance.TICK) } // past 0.5s total
+        assertTrue(e.pathDistance > 2f, "movement should resume after stun")
+    }
+
+    @Test
+    fun `stun durations max-merge and bosses are immune`() {
+        val e = enemy()
+        e.applyStun(1.0f)
+        e.applyStun(0.2f) // shorter must not shorten the active stun
+        repeat(15) { e.update(Balance.TICK) } // 0.5s
+        assertTrue(e.stunned, "1s stun must survive a 0.2s re-application")
+
+        val boss = enemy(EnemyType.ONI_WARLORD)
+        boss.applyStun(5f)
+        assertFalse(boss.stunned)
+    }
+
+    @Test
+    fun `burn still ticks while stunned`() {
+        val e = enemy(EnemyType.MENDER)
+        e.applyStun(2f)
+        e.applyBurn(dps = 30f, duration = 1f)
+        repeat(30) { e.update(Balance.TICK) }
+        assertTrue(e.hp < e.maxHp, "burn must damage a stunned enemy")
+    }
+
+    @Test
     fun `boss slow is capped`() {
         val e = enemy(EnemyType.ONI_WARLORD)
         e.applySlow(0.5f, 2f)
