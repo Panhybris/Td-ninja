@@ -23,5 +23,14 @@ sealed class EffectEvent {
 
     data class WaveCleared(val wave: Int, val bonus: Int) : EffectEvent()
 
+    data class WaveStarted(val wave: Int) : EffectEvent()
+
     data class TowerFired(val towerId: Int, val targetPos: Vec2) : EffectEvent()
+
+    /** Direct damage dealt to an enemy (armor-reduced). Burn ticks are not reported. */
+    data class Damage(val enemyId: Int, val pos: Vec2, val amount: Int) : EffectEvent()
+
+    data class HeroAttack(val pos: Vec2, val targetPos: Vec2) : EffectEvent()
+
+    data class HeroAbilityUsed(val pos: Vec2, val radius: Float) : EffectEvent()
 }

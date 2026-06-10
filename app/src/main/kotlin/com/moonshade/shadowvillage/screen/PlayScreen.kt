@@ -112,6 +112,10 @@ class PlayScreen(
                     map.waypoints[map.waypoints.size / 2], "WAVE CLEAR +${event.bonus}", Palette.GOLD,
                 )
                 is EffectEvent.TowerFired -> Unit
+                is EffectEvent.WaveStarted -> Unit // banner lands in the VFX step
+                is EffectEvent.Damage -> Unit // damage numbers land in the VFX step
+                is EffectEvent.HeroAttack -> Unit // hero FX land with the hero UI
+                is EffectEvent.HeroAbilityUsed -> Unit
             }
         }
         // events are cleared by the session at the start of the next tick

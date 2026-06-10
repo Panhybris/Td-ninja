@@ -6,6 +6,7 @@ import com.moonshade.shadowvillage.core.data.EnemyType
 import com.moonshade.shadowvillage.core.data.SpawnEntry
 import com.moonshade.shadowvillage.core.data.WaveData
 import com.moonshade.shadowvillage.core.data.WaveDef
+import com.moonshade.shadowvillage.core.entity.EffectEvent
 import com.moonshade.shadowvillage.core.game.GameSession
 import com.moonshade.shadowvillage.core.game.GameStatus
 import com.moonshade.shadowvillage.core.game.PlayerCommand
@@ -64,6 +65,25 @@ class GameFlowTest {
         assertTrue(s.execute(PlayerCommand.StartNextWave))
         s.run(15f)
         assertEquals(baseline + Balance.waveClearBonus(1) + Balance.waveClearBonus(2), s.gold)
+    }
+
+    @Test
+    fun `starting a wave emits WaveStarted`() {
+        val s = GameSession(testMap, WaveData.forMap(testMap.id))
+        s.enqueue(PlayerCommand.StartNextWave)
+        s.tick()
+        assertTrue(s.effectEvents.any { it == EffectEvent.WaveStarted(1) })
+    }
+
+    @Test
+    fun `direct damage emits a Damage event with the armor-reduced amount`() {
+        val s = GameSession(testMap, WaveData.forMap(testMap.id))
+        assertTrue(s.execute(PlayerCommand.BuildTower(5, 0, Element.LIGHTNING)))
+        val brute = s.addEnemy(EnemyType.BRUTE, atDistance = 5f) // armor 4
+        s.tick()
+        val damage = s.effectEvents.filterIsInstance<EffectEvent.Damage>().single()
+        assertEquals(brute.id, damage.enemyId)
+        assertEquals(14 - 4, damage.amount) // T1 lightning 14, armor 4
     }
 
     @Test

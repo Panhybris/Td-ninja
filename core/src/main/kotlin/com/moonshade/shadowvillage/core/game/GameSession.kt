@@ -132,7 +132,9 @@ class GameSession(
                 true
             }
             PlayerCommand.StartNextWave -> {
-                spawner.startNext(Balance.hpScale(spawner.currentWave + 1))
+                val started = spawner.startNext(Balance.hpScale(spawner.currentWave + 1))
+                if (started) effectEvents += EffectEvent.WaveStarted(spawner.currentWave)
+                started
             }
         }
     }
@@ -233,7 +235,8 @@ class GameSession(
 
     private fun damageEnemy(enemy: Enemy, raw: Float) {
         if (!enemy.alive) return
-        enemy.takeDamage(raw)
+        val applied = enemy.takeDamage(raw)
+        effectEvents += EffectEvent.Damage(enemy.id, enemy.pos, applied.toInt())
         if (!enemy.alive) awardKill(enemy)
     }
 
