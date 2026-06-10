@@ -50,7 +50,8 @@ class GameSession(
     val waveInProgress: Boolean get() = spawner.hasPendingSpawns || enemies.isNotEmpty()
 
     val enemies = mutableListOf<Enemy>()
-    val towers = mutableListOf<Tower>()
+    /** Copy-on-write so UI-thread hit-testing can read it safely. */
+    val towers = java.util.concurrent.CopyOnWriteArrayList<Tower>()
     val projectiles = mutableListOf<Projectile>()
 
     /** Render hints emitted during the most recent tick. */
