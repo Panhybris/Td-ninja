@@ -5,6 +5,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.MotionEvent
 import com.moonshade.shadowvillage.core.data.Balance
+import com.moonshade.shadowvillage.core.data.EnemyType
 import com.moonshade.shadowvillage.core.data.WaveData
 import com.moonshade.shadowvillage.core.entity.EffectEvent
 import com.moonshade.shadowvillage.core.game.GameSession
@@ -20,12 +21,15 @@ import com.moonshade.shadowvillage.render.HudRenderer
 import com.moonshade.shadowvillage.render.MapRenderer
 import com.moonshade.shadowvillage.render.MapTheme
 import com.moonshade.shadowvillage.render.Palette
+import com.moonshade.shadowvillage.core.math.Vec2
 import com.moonshade.shadowvillage.render.sprites.ArcFx
+import com.moonshade.shadowvillage.render.sprites.BannerFx
 import com.moonshade.shadowvillage.render.sprites.EffectSprites
 import com.moonshade.shadowvillage.render.sprites.Fx
 import com.moonshade.shadowvillage.render.sprites.PoofFx
 import com.moonshade.shadowvillage.render.sprites.RingFx
 import com.moonshade.shadowvillage.render.sprites.SparkFx
+import com.moonshade.shadowvillage.render.sprites.SparkleFx
 import com.moonshade.shadowvillage.render.sprites.SpriteCache
 import com.moonshade.shadowvillage.render.sprites.TextFx
 
@@ -60,6 +64,9 @@ class PlayScreen(
     private var towerPanel: TowerPanel? = null
 
     private val fx = mutableListOf<Fx>()
+    private val damageSums = HashMap<Int, Pair<Vec2, Int>>() // per-tick damage coalescing
+    private var shakeAmp = 0f
+    private var shakeTime = 0f
 
     // overlay buttons (pause menu and end screens share the layout)
     private val overlayPrimary = RectF()
@@ -89,6 +96,8 @@ class PlayScreen(
         atmosphere.update(dt) // ambient life keeps moving even while paused
         for (f in fx) f.age += dt
         fx.removeAll { it.done }
+        shakeTime += dt
+        shakeAmp *= (1f - 6f * dt).coerceAtLeast(0f)
 
         if (paused || session.status != GameStatus.RUNNING) return
 
@@ -102,39 +111,86 @@ class PlayScreen(
         }
     }
 
+    private fun addFx(f: Fx) {
+        if (fx.size >= 120) fx.removeAt(0)
+        fx += f
+    }
+
+    private fun shake(amount: Float) {
+        if (amount > shakeAmp) shakeAmp = amount
+    }
+
     private fun collectFx() {
+        damageSums.clear()
         for (event in session.effectEvents) {
             when (event) {
-                is EffectEvent.LightningArc -> fx += ArcFx(event.points)
-                is EffectEvent.Explosion -> fx += RingFx(event.pos, event.radius, 0xFFC4A284.toInt())
-                is EffectEvent.Impact -> fx += SparkFx(event.pos, Palette.of(event.element).light)
-                is EffectEvent.EnemyDeath -> {
-                    fx += PoofFx(event.pos)
-                    fx += TextFx(event.pos, "+${event.bounty}", Palette.GOLD)
+                is EffectEvent.LightningArc -> addFx(ArcFx(event.points))
+                is EffectEvent.Explosion -> {
+                    addFx(RingFx(event.pos, event.radius, 0xFFC4A284.toInt()))
+                    shake(0.12f)
                 }
-                is EffectEvent.EnemyLeaked -> fx += TextFx(event.pos, "-${event.livesLost}", Palette.LIFE)
-                is EffectEvent.WaveCleared -> fx += TextFx(
-                    map.waypoints[map.waypoints.size / 2], "WAVE CLEAR +${event.bonus}", Palette.GOLD,
-                )
+                is EffectEvent.Impact -> addFx(SparkFx(event.pos, Palette.of(event.element).light))
+                is EffectEvent.EnemyDeath -> {
+                    addFx(PoofFx(event.pos))
+                    addFx(TextFx(event.pos, "+${event.bounty}", Palette.GOLD))
+                    addFx(SparkleFx(event.pos))
+                    if (event.type == EnemyType.ONI_WARLORD || event.type == EnemyType.ONI_VANGUARD) shake(0.5f)
+                }
+                is EffectEvent.EnemyLeaked -> {
+                    addFx(TextFx(event.pos, "-${event.livesLost}", Palette.LIFE))
+                    shake(0.25f)
+                }
+                is EffectEvent.WaveCleared -> addFx(BannerFx("WAVE CLEAR  +${event.bonus}", Palette.GOLD))
                 is EffectEvent.TowerFired -> session.towerById(event.towerId)?.let {
                     gameRenderer.onTowerFired(it.id, it.pos, event.targetPos)
                 }
-                is EffectEvent.WaveStarted -> Unit // banner lands in the VFX step
-                is EffectEvent.Damage -> gameRenderer.onEnemyDamaged(event.enemyId)
-                is EffectEvent.HeroAttack -> gameRenderer.onHeroAttack()
-                is EffectEvent.HeroAbilityUsed -> Unit
+                is EffectEvent.WaveStarted -> addFx(
+                    when (event.wave) {
+                        10 -> BannerFx("ONI VANGUARD APPROACHES", Palette.LIFE)
+                        session.totalWaves -> BannerFx("ONI WARLORD APPROACHES", Palette.LIFE)
+                        else -> BannerFx("WAVE ${event.wave}", Palette.HUD_TEXT)
+                    },
+                )
+                is EffectEvent.Damage -> {
+                    gameRenderer.onEnemyDamaged(event.enemyId)
+                    val prev = damageSums[event.enemyId]
+                    damageSums[event.enemyId] = event.pos to ((prev?.second ?: 0) + event.amount)
+                }
+                is EffectEvent.HeroAttack -> {
+                    gameRenderer.onHeroAttack()
+                    addFx(SparkFx(event.targetPos, Palette.HUD_TEXT))
+                }
+                is EffectEvent.HeroAbilityUsed -> {
+                    addFx(RingFx(event.pos, event.radius, 0xFF2A2D45.toInt()))
+                    shake(0.5f)
+                }
             }
+        }
+        // one summed damage number per enemy per tick keeps the field readable
+        for ((pos, sum) in damageSums.values) {
+            addFx(TextFx(pos, "$sum", Palette.HUD_TEXT, scale = 0.6f))
         }
         // events are cleared by the session at the start of the next tick
     }
 
     override fun draw(canvas: Canvas) {
         if (width == 0) return
+        canvas.save()
+        if (shakeAmp > 0.003f) {
+            val px = shakeAmp * camera.cellSize
+            canvas.translate(
+                kotlin.math.sin(shakeTime * 47f) * px,
+                kotlin.math.cos(shakeTime * 31f) * px,
+            )
+        }
         mapRenderer.draw(canvas, camera, width, height)
         atmosphere.drawBehindEntities(canvas, camera)
         gameRenderer.draw(canvas, session, camera)
         atmosphere.drawOverEntities(canvas, camera, width, height)
         for (f in fx) EffectSprites.draw(canvas, f, camera)
+        canvas.restore()
+
+        drawBanners(canvas)
 
         towerPanel?.let {
             if (session.towerById(it.towerId) == null) towerPanel = null else it.draw(canvas, session, camera, sprites)
@@ -146,6 +202,27 @@ class PlayScreen(
             session.status == GameStatus.VICTORY -> overlay(canvas, "VICTORY!", Palette.GOLD, "REPLAY", "MAPS")
             session.status == GameStatus.DEFEAT -> overlay(canvas, "THE VILLAGE FELL", Palette.LIFE, "RETRY", "MAPS")
             paused -> overlay(canvas, "PAUSED", Palette.HUD_TEXT, "RESUME", "QUIT")
+        }
+    }
+
+    /** Slide-in, hold, slide-out announcement across the top third. */
+    private fun drawBanners(canvas: Canvas) {
+        for (f in fx) {
+            val banner = f as? BannerFx ?: continue
+            val t = banner.t
+            // ease: slide in 0..0.2, hold, slide out 0.8..1
+            val slide = when {
+                t < 0.2f -> 1f - t / 0.2f
+                t > 0.8f -> (t - 0.8f) / 0.2f
+                else -> 0f
+            }
+            val x = width / 2f + slide * slide * width * 0.6f * (if (t < 0.5f) -1f else 1f)
+            val y = height * 0.28f
+            text.textSize = height * 0.075f
+            text.color = (0x99000000.toInt())
+            canvas.drawText(banner.text, x + height * 0.006f, y + height * 0.006f, text)
+            text.color = banner.color
+            canvas.drawText(banner.text, x, y, text)
         }
     }
 
